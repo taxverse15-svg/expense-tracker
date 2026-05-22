@@ -3,6 +3,7 @@
   "name": "expense-tracker",
   "compatibility_date": "2025-05-22",
   "assets": {
+    "directory": "./dist",
     "not_found_handling": "single-page-application"
   }
 }
