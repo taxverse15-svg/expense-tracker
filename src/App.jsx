@@ -22,6 +22,34 @@ import {
 } from 'lucide-react';
 import logoImg from './assets/logo.png';
 
+const GOOGLE_SCRIPT_URL =
+  "https://script.google.com/macros/s/AKfycbzfZ6-noStSW3dG6JARwy3dmu9bSGSG8ZjP0FaGuFAmZIOUiWoMvwZK83uoGDuVCURh/exec";
+
+const MAX_RECEIPT_BYTES = 4 * 1024 * 1024; // Google Apps Script POST limit safety
+
+function parseGoogleScriptResponse(text) {
+  if (!text) return;
+
+  if (text.includes("Illegal spreadsheet id") || text.includes("Error:")) {
+    const match = text.match(/Error:\s*([^<(]+)/i);
+    throw new Error(
+      match
+        ? match[1].trim()
+        : "Google Apps Script configuration error. Check spreadsheet ID in Apps Script."
+    );
+  }
+
+  try {
+    const data = JSON.parse(text);
+    if (data.success === false || data.error) {
+      throw new Error(data.error || "Submission was rejected by the server.");
+    }
+  } catch (err) {
+    if (err instanceof SyntaxError) return;
+    throw err;
+  }
+}
+
 // Committee members list
 const COMMITTEE_MEMBERS = [
   "Dhwani Savla",
@@ -207,119 +235,76 @@ function App() {
       return;
     }
 
+    if (receiptFile && receiptFile.size > MAX_RECEIPT_BYTES) {
+      setFormErrors({
+        receipt: "Receipt file is too large. Please upload an image under 4 MB.",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     setFormErrors({});
     setSubmitError(null);
 
-    const apiEndpoint = "https://script.google.com/macros/s/AKfycbzfZ6-noStSW3dG6JARwy3dmu9bSGSG8ZjP0FaGuFAmZIOUiWoMvwZK83uoGDuVCURh/exec";
-const base64Data = receiptPreview ? receiptPreview.split(",")[1] : "";
-const folderId = folderMap[selectedMember] || "";
-const fileName = receiptFile ? receiptFile.name : "";
+    const base64Data = receiptPreview ? receiptPreview.split(",")[1] : "";
+    const folderId = folderMap[selectedMember] || "";
+    const fileName = receiptFile ? receiptFile.name : "";
 
-console.log("[DEBUG] Starting expense claim submission...");
-console.log("[DEBUG] Endpoint URL:", apiEndpoint);
+    const payload = {
+      name: selectedMember,
+      amount: amount,
+      description: description.trim(),
+      billLink: base64Data,
+      fileName: fileName,
+      folderId: folderId,
+    };
 
-const requestOptions = {
-  method: "POST",
-  mode: "cors",
-  headers: {
-    "Content-Type": "application/json"
-  },
-  body: JSON.stringify({
-    name: selectedMember,
-    amount: amount,
-    billLink: base64Data,
-    fileName: fileName,
-    folderId: folderId
-  })
-};
-
-    console.log("[DEBUG] Request Options:", requestOptions);
+    const recordExpenseLocally = () => {
+      const newExpense = {
+        id: `exp-${Date.now()}`,
+        memberName: selectedMember,
+        amount: parseFloat(amount),
+        description: description.trim(),
+        date: new Date().toISOString().split("T")[0],
+        status: "Pending",
+        receiptName: receiptFile ? receiptFile.name : null,
+        receiptData: receiptPreview,
+      };
+      setExpenses((prev) => [newExpense, ...prev]);
+      setSubmitSuccess(true);
+      setTimeout(() => {
+        setSubmitSuccess(false);
+        resetForm();
+        setActiveTab("home");
+      }, 2000);
+    };
 
     try {
-      // 1. Send POST request
-      const response = await fetch(apiEndpoint, requestOptions);
-      console.log("[DEBUG] API response status:", response.status);
-      console.log("[DEBUG] API response type:", response.type);
+      const response = await fetch(GOOGLE_SCRIPT_URL, {
+        method: "POST",
+        mode: "cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-      // Handle standard response
-      if (response.ok || response.status === 200 || response.type === 'opaque') {
-        console.log("[DEBUG] Expense submitted successfully");
-        
-        // Try parsing JSON response if CORS allowed reading it
-        if (response.type !== 'opaque') {
-          try {
-            const data = await response.json();
-            console.log("[DEBUG] Response JSON:", data);
-          } catch (jsonErr) {
-            console.log("[DEBUG] Could not parse JSON response (not critical):", jsonErr);
-          }
-        }
+      const responseText = await response.text();
+      parseGoogleScriptResponse(responseText);
 
-        // Add to local state list for UI reactivity
-        const newExpense = {
-          id: `exp-${Date.now()}`,
-          memberName: selectedMember,
-          amount: parseFloat(amount),
-          description: description.trim(),
-          date: new Date().toISOString().split('T')[0],
-          status: 'Pending',
-          receiptName: receiptFile ? receiptFile.name : null,
-          receiptData: receiptPreview
-        };
-        setExpenses(prev => [newExpense, ...prev]);
-
-        setSubmitSuccess(true);
-        
-        // Reset form and redirect
-        setTimeout(() => {
-          setSubmitSuccess(false);
-          resetForm();
-          setActiveTab('home');
-        }, 2000);
-      } else {
-        throw new Error(`API responded with status code: ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`Server returned status ${response.status}`);
       }
 
+      recordExpenseLocally();
     } catch (error) {
-      console.error("[DEBUG] Error occurred during standard fetch post:", error);
-      
-      // CORS workarounds & graceful fallback handling:
-      // Google Apps Script redirects webapp requests to script.googleusercontent.com
-      // which can trigger CORS errors in standard fetch even if the row was successfully saved in Google Sheets.
-      // We will perform a fallback request in "no-cors" mode to ensure data gets recorded.
-      console.log("[DEBUG] Attempting CORS fallback using no-cors mode to ensure Google Sheets writes...");
-      
-      try {
-        const fallbackResponse = await fetch(apiEndpoint, requestOptions);
+      console.error("[Expense submit]", error);
 
-        console.log("[DEBUG] Fallback fetch response status (opaque):", fallbackResponse.status);
-        console.log("[DEBUG] Expense submitted successfully (via fallback)");
+      const message =
+        error?.message?.includes("Illegal spreadsheet id")
+          ? "Apps Script uses the full spreadsheet URL instead of the ID. In Google Apps Script Code line 3, use only: 1FIDEr8TIeVhIqYWS_ld8sEqWxll0d4DvlJGSzRCFaVQ — then redeploy the web app."
+          : error?.message ||
+            "Failed to submit expense. Check Google Apps Script deployment (Anyone access) and spreadsheet permissions.";
 
-        const newExpense = {
-          id: `exp-${Date.now()}`,
-          memberName: selectedMember,
-          amount: parseFloat(amount),
-          description: description.trim(),
-          date: new Date().toISOString().split('T')[0],
-          status: 'Pending',
-          receiptName: receiptFile ? receiptFile.name : null,
-          receiptData: receiptPreview
-        };
-        setExpenses(prev => [newExpense, ...prev]);
-
-        setSubmitSuccess(true);
-        
-        setTimeout(() => {
-          setSubmitSuccess(false);
-          resetForm();
-          setActiveTab('home');
-        }, 2000);
-
-      } catch (fallbackError) {
-        console.error("[DEBUG] Fallback also failed:", fallbackError);
-        setSubmitError("Failed to submit expense. Google Apps Script API returned a submission error.");
-      }
+      setSubmitError(message);
     } finally {
       setIsSubmitting(false);
     }
