@@ -44,8 +44,9 @@ function parseGoogleScriptResponse(text) {
     if (data.success === false || data.error) {
       throw new Error(data.error || "Submission was rejected by the server.");
     }
+    return data;
   } catch (err) {
-    if (err instanceof SyntaxError) return;
+    if (err instanceof SyntaxError) return null;
     throw err;
   }
 }
@@ -66,7 +67,7 @@ const COMMITTEE_MEMBERS = [
   "Avinash Revgade",
   "Piyush Kadav"
 ];
-const folderMap = {
+const MEMBER_FOLDERS = {
   "Aman Upadhyay": "1nvyKviniAY_c4FMTk7o7oqFpFaUy_4MK",
   "Avinash Revgade": "1cnxPIS4bx4YNLHy6Lv62No44-Yhb7zyu",
   "Ayush Chauhan": "1zO6LQe-u_KyynV_v-BQBQG1ifamAZ2hN",
@@ -76,10 +77,10 @@ const folderMap = {
   "Hitesh Ramnani": "1n4ZmiwNkCmSFzB99pURK7xh4jZP5XEZ7",
   "Kundan Parasramka": "1G3KWbFqbVvE_8OUW0hWgkDgdZ-kTKUSU",
   "Piyush Kadav": "1hwFuQnCbXdwwqX_JiKKU4KKHnVlHMiup",
-  "Pratik Ojva": "1a1bMKrKhvS326TIdVHCmcHn_iDrD1z-u",
+  "Pratik Ojha": "1a1bMKrKhvS326TIdVHCmcHn_iDrD1z-u",
   "Soham Ranshur": "1bzUh88_2hRRWAKTLuOvH57ey2bjvgJe2",
   "Sumit Gupta": "194z_DyDj11qZzjO6LmhqUUX_apCOfh7Z",
-  "Vivek Patel": "1bP3rYT6Zo5ZEyEwC9uJtrav-iVUIKQBd"
+  "Vivek Patel": "1bP3rYT6Zo5ZEyEwC9uJtrav-iVUIKQBd",
 };
 // Initial mock data if localStorage is empty
 const INITIAL_EXPENSES = [
@@ -229,6 +230,12 @@ function App() {
     if (!description.trim() || description.trim().length < 10) {
       errors.description = "Please provide a detailed description (min 10 characters).";
     }
+    if (!receiptFile || !receiptPreview) {
+      errors.receipt = "Please upload a receipt image.";
+    }
+    if (selectedMember && !MEMBER_FOLDERS[selectedMember]) {
+      errors.selectedMember = "No Google Drive folder configured for this member.";
+    }
 
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors);
@@ -246,20 +253,21 @@ function App() {
     setFormErrors({});
     setSubmitError(null);
 
-    const base64Data = receiptPreview ? receiptPreview.split(",")[1] : "";
-    const folderId = folderMap[selectedMember] || "";
-    const fileName = receiptFile ? receiptFile.name : "";
+    const base64Data = receiptPreview.split(",")[1] || "";
+    const folderId = MEMBER_FOLDERS[selectedMember];
+    const fileName = receiptFile.name;
 
     const payload = {
       name: selectedMember,
       amount: amount,
       description: description.trim(),
-      billLink: base64Data,
+      receiptBase64: base64Data,
+      mimeType: receiptFile.type || "image/jpeg",
       fileName: fileName,
       folderId: folderId,
     };
 
-    const recordExpenseLocally = () => {
+    const recordExpenseLocally = (driveFileUrl) => {
       const newExpense = {
         id: `exp-${Date.now()}`,
         memberName: selectedMember,
@@ -267,8 +275,8 @@ function App() {
         description: description.trim(),
         date: new Date().toISOString().split("T")[0],
         status: "Pending",
-        receiptName: receiptFile ? receiptFile.name : null,
-        receiptData: receiptPreview,
+        receiptName: fileName,
+        receiptData: driveFileUrl || null,
       };
       setExpenses((prev) => [newExpense, ...prev]);
       setSubmitSuccess(true);
@@ -287,7 +295,7 @@ function App() {
       });
 
       const responseText = await response.text();
-      parseGoogleScriptResponse(responseText);
+      const result = parseGoogleScriptResponse(responseText);
 
       if (!response.ok) {
         let serverError = `Server returned status ${response.status}`;
@@ -300,7 +308,7 @@ function App() {
         throw new Error(serverError);
       }
 
-      recordExpenseLocally();
+      recordExpenseLocally(result?.driveFileUrl);
     } catch (error) {
       console.error("[Expense submit]", error);
 
@@ -978,6 +986,12 @@ function App() {
                       </div>
                     )}
                   </div>
+                  {formErrors.receipt && (
+                    <p className="text-red-500 text-xs font-semibold flex items-center gap-1 mt-1">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      {formErrors.receipt}
+                    </p>
+                  )}
                 </div>
 
                 {/* API Error Notification */}
@@ -1272,11 +1286,29 @@ function App() {
               darkMode ? 'bg-slate-950 border-slate-950' : 'bg-slate-50 border-slate-100'
             }`}>
               {selectedReceiptUrl ? (
-                <img 
-                  src={selectedReceiptUrl} 
-                  alt="Bill Receipt Upload" 
-                  className="max-h-[380px] w-full object-contain"
-                />
+                selectedReceiptUrl.includes("drive.google.com") ? (
+                  <div className="py-16 px-6 text-center space-y-4">
+                    <FileImage className="w-12 h-12 text-indigo-400 mx-auto" />
+                    <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                      Receipt saved in Google Drive
+                    </p>
+                    <a
+                      href={selectedReceiptUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors"
+                    >
+                      <Eye className="w-4 h-4" />
+                      Open in Google Drive
+                    </a>
+                  </div>
+                ) : (
+                  <img 
+                    src={selectedReceiptUrl} 
+                    alt="Bill Receipt Upload" 
+                    className="max-h-[380px] w-full object-contain"
+                  />
+                )
               ) : (
                 <div className="py-20 text-center space-y-3">
                   <FileImage className="w-12 h-12 text-slate-600 mx-auto" />

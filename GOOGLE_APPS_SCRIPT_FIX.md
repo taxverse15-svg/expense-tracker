@@ -1,37 +1,32 @@
-# Fix: Google Apps Script submission error
+# Google Apps Script — Drive upload setup
 
-## Root cause
+## What the backend does now
 
-The API returns this error (HTTP 200 with error HTML):
+1. Receives name, amount, description, receipt image (base64)
+2. Looks up the member's Drive folder from `MEMBER_FOLDERS`
+3. Uploads the receipt file into that folder
+4. Saves a **clickable Drive link** in the sheet (not base64)
+5. Saves description, amount, name, timestamp, file name, status
 
-```
-Illegal spreadsheet id or key: https://docs.google.com/spreadsheets/d/1FIDEr8TIeVhIqYWS_ld8sEqWxll0d4DvlJGSzRCFaVQ/edit?gid=0#gid=0
-```
+## You must update Apps Script manually
 
-Your Apps Script **Code.gs line 3** uses the **full spreadsheet URL**.  
-`SpreadsheetApp.openById()` requires **only the ID**:
+Cloudflare deploys the **website only**. The script runs in **Google Apps Script**.
 
-```
-1FIDEr8TIeVhIqYWS_ld8sEqWxll0d4DvlJGSzRCFaVQ
-```
-
-## Fix in Google Apps Script
-
-1. Open [script.google.com](https://script.google.com) → your expense-tracker project.
-2. In **Code.gs**, change line 3 from the URL to:
-
-```javascript
-const SPREADSHEET_ID = "1FIDEr8TIeVhIqYWS_ld8sEqWxll0d4DvlJGSzRCFaVQ";
-const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getActiveSheet();
-```
-
+1. Open [script.google.com](https://script.google.com) → your expense project
+2. Replace all of `Code.gs` with the contents of [`google-apps-script/Code.gs`](./google-apps-script/Code.gs)
 3. **Deploy → Manage deployments → Edit → New version → Deploy**
-4. Web app settings:
-   - **Execute as:** Me
-   - **Who has access:** Anyone
+4. Settings: **Execute as: Me**, **Who has access: Anyone**
 
-A full reference script is in [`google-apps-script/Code.gs`](./google-apps-script/Code.gs).
+## Sheet columns
 
-## After fixing
+| Timestamp | Name | Amount | Description | Receipt File | Drive Link | Status |
 
-Submit an expense again on the website. The red error should disappear and rows should appear in your Google Sheet.
+## Drive permissions
+
+The Google account that owns the script must have **edit access** to every member folder in `MEMBER_FOLDERS`.
+
+## Test
+
+1. Submit expense for **Hardik Kothari** with a receipt image
+2. Check Hardik's Drive folder for the new file
+3. Check the sheet — **Drive Link** column should show "View Receipt" (not long base64 text)
