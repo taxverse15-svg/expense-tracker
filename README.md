@@ -1,4 +1,16 @@
-# React + Vite
+# WICASA KDUB Expense Report
+
+React + Vite app deployed to Cloudflare Workers.
+
+## Deploy to Cloudflare
+
+Set the Workers Builds **deploy command** to `npm run deploy` (not `npx wrangler deploy`). See [DEPLOY.md](./DEPLOY.md) for full settings.
+
+```bash
+npm run deploy
+```
+
+## Development
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
