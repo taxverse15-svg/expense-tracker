@@ -1,32 +1,30 @@
-# Google Apps Script — Drive upload setup
+# Fix Drive upload (required — read this)
 
-## What the backend does now
+Your sheet still shows **base64 in Bill Link** because the **old Apps Script** is still deployed on Google.  
+The website on Cloudflare is updated automatically; **Apps Script is NOT**.
 
-1. Receives name, amount, description, receipt image (base64)
-2. Looks up the member's Drive folder from `MEMBER_FOLDERS`
-3. Uploads the receipt file into that folder
-4. Saves a **clickable Drive link** in the sheet (not base64)
-5. Saves description, amount, name, timestamp, file name, status
+## Do this now (5 minutes)
 
-## You must update Apps Script manually
+1. Open https://script.google.com → your WICASA expense project  
+2. Select **Code.gs** → delete everything  
+3. Copy **all** of `google-apps-script/Code.gs` from GitHub and paste  
+4. **Deploy → Manage deployments → Edit (pencil) → Version: New version → Deploy**  
+5. Confirm:
+   - **Execute as:** Me  
+   - **Who has access:** Anyone  
 
-Cloudflare deploys the **website only**. The script runs in **Google Apps Script**.
+## Share Drive folders
 
-1. Open [script.google.com](https://script.google.com) → your expense project
-2. Replace all of `Code.gs` with the contents of [`google-apps-script/Code.gs`](./google-apps-script/Code.gs)
-3. **Deploy → Manage deployments → Edit → New version → Deploy**
-4. Settings: **Execute as: Me**, **Who has access: Anyone**
+The Google account that runs the script must be **Editor** on every member folder in `MEMBER_FOLDERS` (including Sumit: `194z_DyDj11qZzjO6LmhqUUX_apCOfh7Z`).
 
-## Sheet columns
+## After deploy — test
 
-| Timestamp | Name | Amount | Description | Receipt File | Drive Link | Status |
+| Step | Expected |
+|------|----------|
+| Submit as **Sumit Gupta** + receipt | File appears in Sumit's Drive folder |
+| Google Sheet column C | **View Receipt** link (not `iVBORw0...` base64) |
+| Column F | Description text |
 
-## Drive permissions
+## Sheet columns (unchanged)
 
-The Google account that owns the script must have **edit access** to every member folder in `MEMBER_FOLDERS`.
-
-## Test
-
-1. Submit expense for **Hardik Kothari** with a receipt image
-2. Check Hardik's Drive folder for the new file
-3. Check the sheet — **Drive Link** column should show "View Receipt" (not long base64 text)
+| A Name | B Amount | C Bill Link | D Status | E Date | F Description |

@@ -308,7 +308,13 @@ function App() {
         throw new Error(serverError);
       }
 
-      recordExpenseLocally(result?.driveFileUrl);
+      if (!result?.driveFileUrl) {
+        throw new Error(
+          "Receipt was not uploaded to Google Drive. Open script.google.com, replace Code.gs with the latest from GitHub (google-apps-script/Code.gs), deploy a new version, then try again."
+        );
+      }
+
+      recordExpenseLocally(result.driveFileUrl);
     } catch (error) {
       console.error("[Expense submit]", error);
 

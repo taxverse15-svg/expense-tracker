@@ -34,8 +34,25 @@ async function proxyToGoogleScript(request: Request): Promise<Response> {
 
     const text = await gasResponse.text();
 
+    if (text.includes("<!DOCTYPE html") || text.includes("Error:")) {
+      const match = text.match(/Error:\s*([^<(]+)/i);
+      const error = (match?.[1] || "Google Apps Script error").trim();
+      return new Response(JSON.stringify({ success: false, error }), {
+        status: 500,
+        headers: { ...corsHeaders(), "Content-Type": "application/json" },
+      });
+    }
+
+    let status = gasResponse.ok ? 200 : gasResponse.status;
+    try {
+      const json = JSON.parse(text) as { success?: boolean };
+      if (json.success === false) status = 500;
+    } catch {
+      /* non-json body */
+    }
+
     return new Response(text, {
-      status: gasResponse.ok ? 200 : gasResponse.status,
+      status,
       headers: {
         ...corsHeaders(),
         "Content-Type": gasResponse.headers.get("Content-Type") || "application/json",

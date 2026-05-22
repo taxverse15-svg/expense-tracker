@@ -1,15 +1,14 @@
 /**
- * WICASA Expense Tracker — Google Apps Script backend
+ * WICASA Expense Tracker — paste ALL of this into Apps Script Code.gs
+ * Deploy → New version → Web app (Execute as: Me, Anyone can access)
  *
- * Deploy: Deploy → New deployment → Web app
- * - Execute as: Me
- * - Who has access: Anyone
- *
- * Paste this entire file into Apps Script, then deploy a new version.
+ * Sheet layout (your existing columns):
+ *   A: Name | B: Amount | C: Bill Link | D: Status | E: Date | F: Description
  */
 
 const SPREADSHEET_ID = "1FIDEr8TIeVhIqYWS_ld8sEqWxll0d4DvlJGSzRCFaVQ";
 
+/** Exact folder IDs — do not create new folders */
 const MEMBER_FOLDERS = {
   "Aman Upadhyay": "1nvyKviniAY_c4FMTk7o7oqFpFaUy_4MK",
   "Avinash Revgade": "1cnxPIS4bx4YNLHy6Lv62No44-Yhb7zyu",
@@ -26,74 +25,58 @@ const MEMBER_FOLDERS = {
   "Vivek Patel": "1bP3rYT6Zo5ZEyEwC9uJtrav-iVUIKQBd",
 };
 
-// Sheet columns: Timestamp | Name | Amount | Description | Receipt File | Drive Link | Status
-const SHEET_HEADERS = [
-  "Timestamp",
-  "Name",
-  "Amount",
-  "Description",
-  "Receipt File",
-  "Drive Link",
-  "Status",
-];
-
 function doPost(e) {
   try {
     const rawBody = e.postData ? e.postData.contents || e.postData.getDataAsString() : "";
     const data = JSON.parse(rawBody || "{}");
-    const sheet = getSheet_();
 
-    const memberName = (data.name || "").trim();
-    const folderId = MEMBER_FOLDERS[memberName] || (data.folderId || "").trim();
-
+    const memberName = String(data.name || "").trim();
     if (!memberName) {
       throw new Error("Member name is required.");
     }
 
-    let driveFileUrl = "";
-    let driveFileName = "";
-
-    const base64Input = data.receiptBase64 || data.billLink || "";
-    if (base64Input) {
-      if (!folderId) {
-        throw new Error(
-          "No Drive folder mapped for member: " + memberName + ". Check MEMBER_FOLDERS."
-        );
-      }
-
-      driveFileName = buildReceiptFileName_(memberName, data.fileName);
-      const mimeType = data.mimeType || guessMimeType_(driveFileName);
-      const bytes = Utilities.base64Decode(normalizeBase64_(base64Input));
-      const blob = Utilities.newBlob(bytes, mimeType, driveFileName);
-      const folder = DriveApp.getFolderById(folderId);
-      const file = folder.createFile(blob);
-
-      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-      driveFileUrl = file.getUrl();
+    const folderId = MEMBER_FOLDERS[memberName];
+    if (!folderId) {
+      throw new Error("No Drive folder mapped for: " + memberName);
     }
 
-    const timestamp = new Date();
+    const base64Input = data.receiptBase64 || data.billLink || "";
+    if (!base64Input) {
+      throw new Error("Receipt image (base64) is required.");
+    }
+
+    const driveFile = uploadReceiptToMemberFolder_(
+      memberName,
+      folderId,
+      base64Input,
+      data.fileName,
+      data.mimeType
+    );
+
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getActiveSheet();
+    ensureDescriptionHeader_(sheet);
+
+    // Match your sheet: Name | Amount | Bill Link | Status | Date | Description
     sheet.appendRow([
-      timestamp,
       memberName,
       data.amount || "",
-      data.description || "",
-      driveFileName,
-      driveFileUrl,
+      driveFile.url,
       "Pending",
+      new Date(),
+      data.description || "",
     ]);
 
     const row = sheet.getLastRow();
-    if (driveFileUrl) {
-      sheet
-        .getRange(row, 6)
-        .setFormula('=HYPERLINK("' + driveFileUrl + '","View Receipt")');
-    }
+    sheet
+      .getRange(row, 3)
+      .setFormula('=HYPERLINK("' + driveFile.url + '","View Receipt")');
 
     return jsonResponse_({
       success: true,
-      driveFileUrl: driveFileUrl,
-      fileName: driveFileName,
+      driveFileUrl: driveFile.url,
+      driveFileId: driveFile.id,
+      fileName: driveFile.name,
+      folderId: folderId,
     });
   } catch (err) {
     return jsonResponse_({ success: false, error: err.message });
@@ -101,54 +84,85 @@ function doPost(e) {
 }
 
 function doGet() {
-  return jsonResponse_({ success: true, status: "ok" });
+  return jsonResponse_({ success: true, status: "ok", version: 4 });
 }
 
-function getSheet_() {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = ss.getActiveSheet();
-  if (sheet.getLastRow() === 0) {
-    sheet.appendRow(SHEET_HEADERS);
+/**
+ * Decode base64 → blob → create file in member's existing Drive folder.
+ */
+function uploadReceiptToMemberFolder_(memberName, folderId, base64Input, fileName, mimeType) {
+  const decodedName = buildReceiptFileName_(memberName, fileName);
+  const resolvedMime = mimeType || guessMimeType_(decodedName);
+  const bytes = Utilities.base64Decode(normalizeBase64_(base64Input));
+  const blob = Utilities.newBlob(bytes, resolvedMime, decodedName);
+
+  let folder;
+  try {
+    folder = DriveApp.getFolderById(folderId);
+  } catch (e) {
+    throw new Error(
+      "Cannot open Drive folder for " +
+        memberName +
+        ". Share the folder with the script owner account."
+    );
   }
-  return sheet;
+
+  const file = folder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  return {
+    id: file.getId(),
+    url: file.getUrl(),
+    name: file.getName(),
+  };
+}
+
+function ensureDescriptionHeader_(sheet) {
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(["Name", "Amount", "Bill Link", "Status", "Date", "Description"]);
+    return;
+  }
+  const colF = sheet.getRange(1, 6).getValue();
+  if (!colF || String(colF).toLowerCase() !== "description") {
+    sheet.getRange(1, 6).setValue("Description");
+  }
 }
 
 function normalizeBase64_(input) {
-  let value = String(input || "").trim();
-  const dataUrlMatch = value.match(/^data:[^;]+;base64,(.+)$/i);
-  if (dataUrlMatch) {
-    value = dataUrlMatch[1];
+  var value = String(input || "").trim();
+  var match = value.match(/^data:[^;]+;base64,(.+)$/i);
+  if (match) {
+    value = match[1];
   }
   value = value.replace(/\s/g, "");
-  const padding = value.length % 4;
-  if (padding) {
-    value += "=".repeat(4 - padding);
+  var pad = value.length % 4;
+  if (pad) {
+    value += "====".substring(0, 4 - pad);
   }
   return value;
 }
 
 function buildReceiptFileName_(memberName, originalName) {
-  const safeMember = memberName.replace(/[^\w]+/g, "_");
-  const ext = (originalName && originalName.includes("."))
-    ? originalName.slice(originalName.lastIndexOf("."))
-    : ".jpg";
-  const base = originalName
-    ? originalName.replace(/\.[^/.]+$/, "").replace(/[^\w.-]+/g, "_")
-    : "receipt";
-  return safeMember + "_" + base + "_" + new Date().getTime() + ext;
+  var safeMember = memberName.replace(/[^\w]+/g, "_");
+  var stamp = new Date().getTime();
+  if (originalName) {
+    var clean = String(originalName).replace(/[^\w.\-]+/g, "_");
+    return safeMember + "_receipt_" + stamp + "_" + clean;
+  }
+  return safeMember + "_receipt_" + stamp + ".jpg";
+}
+
+function guessMimeType_(fileName) {
+  var lower = String(fileName || "").toLowerCase();
+  if (lower.indexOf(".webp") !== -1) return "image/webp";
+  if (lower.indexOf(".png") !== -1) return "image/png";
+  if (lower.indexOf(".pdf") !== -1) return "application/pdf";
+  if (lower.indexOf(".jpg") !== -1 || lower.indexOf(".jpeg") !== -1) return "image/jpeg";
+  return "image/jpeg";
 }
 
 function jsonResponse_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(
     ContentService.MimeType.JSON
   );
-}
-
-function guessMimeType_(fileName) {
-  const lower = (fileName || "").toLowerCase();
-  if (lower.endsWith(".png")) return "image/png";
-  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-  if (lower.endsWith(".webp")) return "image/webp";
-  if (lower.endsWith(".pdf")) return "application/pdf";
-  return "image/jpeg";
 }
