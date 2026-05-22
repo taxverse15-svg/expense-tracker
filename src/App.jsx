@@ -22,8 +22,8 @@ import {
 } from 'lucide-react';
 import logoImg from './assets/logo.png';
 
-const GOOGLE_SCRIPT_URL =
-  "https://script.google.com/macros/s/AKfycbzfZ6-noStSW3dG6JARwy3dmu9bSGSG8ZjP0FaGuFAmZIOUiWoMvwZK83uoGDuVCURh/exec";
+// Same-origin proxy avoids CORS "Failed to fetch" from the browser
+const EXPENSE_API_URL = "/api/submit";
 
 const MAX_RECEIPT_BYTES = 4 * 1024 * 1024; // Google Apps Script POST limit safety
 
@@ -280,9 +280,8 @@ function App() {
     };
 
     try {
-      const response = await fetch(GOOGLE_SCRIPT_URL, {
+      const response = await fetch(EXPENSE_API_URL, {
         method: "POST",
-        mode: "cors",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
@@ -291,15 +290,26 @@ function App() {
       parseGoogleScriptResponse(responseText);
 
       if (!response.ok) {
-        throw new Error(`Server returned status ${response.status}`);
+        let serverError = `Server returned status ${response.status}`;
+        try {
+          const errJson = JSON.parse(responseText);
+          if (errJson.error) serverError = errJson.error;
+        } catch {
+          /* use default */
+        }
+        throw new Error(serverError);
       }
 
       recordExpenseLocally();
     } catch (error) {
       console.error("[Expense submit]", error);
 
-      const message =
-        error?.message?.includes("Illegal spreadsheet id")
+      const isNetworkError =
+        error?.name === "TypeError" && error?.message?.includes("fetch");
+
+      const message = isNetworkError
+        ? "Network error — could not reach the server. Check your connection and try again."
+        : error?.message?.includes("Illegal spreadsheet id")
           ? "Apps Script uses the full spreadsheet URL instead of the ID. In Google Apps Script Code line 3, use only: 1FIDEr8TIeVhIqYWS_ld8sEqWxll0d4DvlJGSzRCFaVQ — then redeploy the web app."
           : error?.message ||
             "Failed to submit expense. Check Google Apps Script deployment (Anyone access) and spreadsheet permissions.";
