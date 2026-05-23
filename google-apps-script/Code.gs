@@ -40,6 +40,10 @@ function doPost(e) {
       throw new Error("No Drive folder mapped for: " + memberName);
     }
 
+    if (data.folderId && String(data.folderId).trim() !== folderId) {
+      throw new Error("Selected member does not match the submitted Drive folder.");
+    }
+
     const base64Input = data.receiptBase64 || data.billLink || "";
     if (!base64Input) {
       throw new Error("Receipt image (base64) is required.");
