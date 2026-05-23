@@ -1,5 +1,5 @@
 const GOOGLE_SCRIPT_URL =
-  "https://script.google.com/macros/s/AKfycbzfZ6-noStSW3dG6JARwy3dmu9bSGSG8ZjP0FaGuFAmZIOUiWoMvwZK83uoGDuVCURh/exec";
+  "https://script.google.com/macros/s/AKfycbxhPUFjK2GexlynbuZAjl5z1trUwK-q1ALqOkbGAfHApQiv2lFCjheXWJs90gSguShB/exec";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
