@@ -51,22 +51,6 @@ function parseGoogleScriptResponse(text) {
   }
 }
 
-// Committee members list
-const COMMITTEE_MEMBERS = [
-  "Dhwani Savla",
-  "Hardik Kothari",
-  "Ayush Chauhan",
-  "Pratik Ojha",
-  "Sumit Gupta",
-  "Soham Ranshur",
-  "Kundan Parasramka",
-  "Aman Upadhyay",
-  "Dhiraj Wadhwani",
-  "Hitesh Ramnani",
-  "Vivek Patel",
-  "Avinash Revgade",
-  "Piyush Kadav"
-];
 const MEMBER_FOLDERS = {
   "Aman Upadhyay": "1nvyKviniAY_c4FMTk7o7oqFpFaUy_4MK",
   "Avinash Revgade": "1cnxPIS4bx4YNLHy6Lv62No44-Yhb7zyu",
@@ -82,6 +66,7 @@ const MEMBER_FOLDERS = {
   "Sumit Gupta": "194z_DyDj11qZzjO6LmhqUUX_apCOfh7Z",
   "Vivek Patel": "1bP3rYT6Zo5ZEyEwC9uJtrav-iVUIKQBd",
 };
+const COMMITTEE_MEMBERS = Object.keys(MEMBER_FOLDERS);
 // Initial mock data if localStorage is empty
 const INITIAL_EXPENSES = [
   {
